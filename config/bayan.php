@@ -25,6 +25,15 @@ return [
         'key' => env('PEXELS_API_KEY'),
     ],
 
+    'fonts' => [
+        'directory' => 'fonts',
+        'families' => [
+            'Noto Naskh Arabic' => 'NotoNaskhArabic-Regular.ttf',
+            'Noto Sans Arabic' => 'NotoSansArabic-Regular.ttf',
+            'Noto Sans' => 'NotoSans-Regular.ttf',
+        ],
+    ],
+
     'default_styles' => [
         'arabic' => [
             'font' => 'Noto Naskh Arabic',

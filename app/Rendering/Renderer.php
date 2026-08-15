@@ -206,7 +206,7 @@ class Renderer
         string $outputAbsolute,
     ): void {
         $bg = Storage::disk(config('bayan.disks.library'))->path($background->path);
-        $fontsDir = storage_path('app/fonts');
+        $fontsDir = public_path((string) config('bayan.fonts.directory'));
         $duration = number_format($durationMs / 1000, 3, '.', '');
         $filter = sprintf(
             'scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,ass=%s:fontsdir=%s',

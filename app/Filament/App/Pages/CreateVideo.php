@@ -267,11 +267,22 @@ class CreateVideo extends Page
     {
         return [
             Select::make("{$prefix}.font")
-                ->options([
-                    'Noto Naskh Arabic' => 'Noto Naskh Arabic',
-                    'Noto Sans Arabic' => 'Noto Sans Arabic',
-                    'Noto Sans' => 'Noto Sans',
-                ])
+                ->options(function (): array {
+                    $families = config('bayan.fonts.families');
+
+                    if (! is_array($families)) {
+                        return [];
+                    }
+
+                    $options = [];
+                    foreach (array_keys($families) as $name) {
+                        if (is_string($name)) {
+                            $options[$name] = $name;
+                        }
+                    }
+
+                    return $options;
+                })
                 ->required(),
             ColorPicker::make("{$prefix}.color")->required(),
             ColorPicker::make("{$prefix}.outline")->label('Outline')->required(),
