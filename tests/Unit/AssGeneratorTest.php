@@ -38,3 +38,28 @@ test('writes arabic and translation cues', function () {
         ->toContain('بِسْمِ')
         ->toContain('In the name');
 });
+
+test('stacks centered arabic above centered translation as one block', function () {
+    $ass = new AssGenerator;
+    $output = $ass->generate(
+        [
+            [
+                'start_ms' => 0,
+                'end_ms' => 2000,
+                'arabic' => 'بِسْمِ',
+                'translation' => 'In the name',
+            ],
+        ],
+        Orientation::Vertical,
+        ['font' => 'Scheherazade New', 'color' => '#FFFFFF', 'outline' => '#000000', 'position' => 'center', 'size' => 64],
+        ['font' => 'Noto Sans', 'color' => '#F5F5F5', 'outline' => '#000000', 'position' => 'center', 'size' => 32],
+        true,
+        true,
+    );
+
+    expect($output)
+        ->toContain('Style: Arabic,Scheherazade New,64')
+        ->toContain('Style: Translation,Noto Sans,32')
+        ->toContain('Dialogue: 0,0:00:00.00,0:00:02.00,Arabic,,0,0,0,,{\an2\pos(540,924)\q2}بِسْمِ')
+        ->toContain('Dialogue: 1,0:00:00.00,0:00:02.00,Translation,,0,0,0,,{\an8\pos(540,996)\q2}In the name');
+});

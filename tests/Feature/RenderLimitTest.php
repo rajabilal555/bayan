@@ -30,7 +30,7 @@ test('cache hits do not consume the daily limit', function () {
         'status' => RenderStatus::Completed,
     ]);
 
-    expect($user->cacheMissesToday())->toBe(2)
+    expect($user->creditsUsedToday())->toBe(2)
         ->and($user->remainingRenders())->toBe(3);
 });
 
@@ -42,7 +42,20 @@ test('failed jobs do not consume the daily limit', function () {
         'status' => RenderStatus::Failed,
     ]);
 
-    expect($user->cacheMissesToday())->toBe(0);
+    expect($user->creditsUsedToday())->toBe(0);
+});
+
+test('long ranges consume extra render credits', function () {
+    $user = User::factory()->unverified()->create();
+
+    RenderJob::factory()->for($user)->create([
+        'cache_hit' => false,
+        'status' => RenderStatus::Completed,
+        'credits' => 2,
+    ]);
+
+    expect($user->creditsUsedToday())->toBe(2)
+        ->and($user->remainingRenders())->toBe(3);
 });
 
 test('admin override replaces the default daily cap', function () {

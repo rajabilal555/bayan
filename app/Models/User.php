@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\RenderStatus;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
@@ -72,18 +73,18 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
             : (int) config('bayan.limits.unverified');
     }
 
-    public function cacheMissesToday(): int
+    public function creditsUsedToday(): int
     {
-        return $this->renderJobs()
+        return (int) $this->renderJobs()
             ->where('cache_hit', false)
-            ->where('status', '!=', 'failed')
+            ->where('status', '!=', RenderStatus::Failed)
             ->where('created_at', '>=', now('UTC')->startOfDay())
-            ->count();
+            ->sum('credits');
     }
 
     public function remainingRenders(): int
     {
-        return max(0, $this->dailyRenderLimit() - $this->cacheMissesToday());
+        return max(0, $this->dailyRenderLimit() - $this->creditsUsedToday());
     }
 
     public function initials(): string

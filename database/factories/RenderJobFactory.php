@@ -34,6 +34,7 @@ class RenderJobFactory extends Factory
             'loop_background' => true,
             'fingerprint' => hash('sha256', fake()->unique()->uuid()),
             'cache_hit' => false,
+            'credits' => 1,
             'status' => RenderStatus::Pending,
         ];
     }

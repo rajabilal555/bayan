@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Reciters\Pages;
 
+use App\Filament\Actions\LibraryImportActions;
 use App\Filament\Resources\Reciters\ReciterResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
@@ -13,6 +14,7 @@ class EditReciter extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            LibraryImportActions::reciterAudio(),
             DeleteAction::make(),
         ];
     }

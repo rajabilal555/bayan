@@ -16,7 +16,7 @@ class AyahAudioFactory extends Factory
         return [
             'reciter_id' => Reciter::factory(),
             'surah' => 1,
-            'ayah' => fake()->unique()->numberBetween(1, 7),
+            'ayah' => fake()->numberBetween(1, 7),
             'path' => 'audio/test.mp3',
             'duration_ms' => 2000,
         ];

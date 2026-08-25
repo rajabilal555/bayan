@@ -6,39 +6,72 @@ use App\Models\Surah;
 use App\Models\Translation;
 use App\Models\TranslationSource;
 use App\Support\QulClient;
+use App\Support\QulDump;
 use App\Support\SurahRange;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
+use JsonException;
+use RuntimeException;
 
 class QulImportTranslationCommand extends Command
 {
-    protected $signature = 'qul:import-translation {source=saheeh : Source slug (saheeh)} {--surahs= : Comma/range list such as 1,36,112-114}';
+    protected $signature = 'qul:import-translation
+        {source=saheeh : QUL translation id or slug}
+        {--file= : QUL translation JSON or SQLite dump}
+        {--surahs= : Comma/range list such as 1,36,112-114}';
 
-    protected $description = 'Import an ayah-by-ayah translation from QUL';
-
-    /**
-     * @var array<string, array{id: string, name: string}>
-     */
-    private array $sources = [
-        'saheeh' => ['id' => '20', 'name' => 'Saheeh International'],
-    ];
+    protected $description = 'Import an ayah-by-ayah translation from QUL (API or downloaded dump)';
 
     public function handle(QulClient $client): int
     {
-        $slug = (string) $this->argument('source');
+        $meta = $client->translationResource((string) $this->argument('source'));
 
-        if (! isset($this->sources[$slug])) {
-            $this->error('Unknown translation source. Known: '.implode(', ', array_keys($this->sources)));
+        if ($meta === null) {
+            $this->error('Unknown translation. Use a QUL id/slug or download JSON from https://qul.tarteel.ai/resources/translation');
 
             return self::FAILURE;
         }
 
-        $meta = $this->sources[$slug];
         $source = TranslationSource::query()->updateOrCreate(
-            ['slug' => $slug],
+            ['slug' => $meta['slug']],
             ['name' => $meta['name'], 'qul_resource_id' => $meta['id']],
         );
 
+        $file = $this->option('file');
         $surahs = SurahRange::parse($this->option('surahs')) ?? range(1, 114);
+
+        if (is_string($file) && $file !== '') {
+            try {
+                $rows = QulDump::versesFrom($file);
+            } catch (InvalidArgumentException|JsonException|RuntimeException $exception) {
+                $this->error($exception->getMessage());
+
+                return self::FAILURE;
+            }
+
+            $imported = 0;
+
+            foreach ($rows as $row) {
+                if (! in_array($row['surah'], $surahs, true)) {
+                    continue;
+                }
+
+                Translation::query()->updateOrCreate(
+                    [
+                        'translation_source_id' => $source->id,
+                        'surah' => $row['surah'],
+                        'ayah' => $row['ayah'],
+                    ],
+                    ['text' => $row['text']],
+                );
+                $imported++;
+            }
+
+            $this->info("Imported {$imported} translation rows for {$source->name}.");
+
+            return self::SUCCESS;
+        }
+
         $imported = 0;
 
         foreach ($surahs as $surah) {
@@ -50,15 +83,18 @@ class QulImportTranslationCommand extends Command
                 ->throw()
                 ->json('translations');
 
-            foreach ($rows as $row) {
-                [$s, $a] = array_map('intval', explode(':', $row['verse_key'], 2));
+            if (! is_array($rows)) {
+                continue;
+            }
+
+            foreach (QulDump::verses(['translations' => $rows]) as $row) {
                 Translation::query()->updateOrCreate(
                     [
                         'translation_source_id' => $source->id,
-                        'surah' => $s,
-                        'ayah' => $a,
+                        'surah' => $row['surah'],
+                        'ayah' => $row['ayah'],
                     ],
-                    ['text' => trim(html_entity_decode(strip_tags($row['text']), ENT_QUOTES | ENT_HTML5, 'UTF-8'))],
+                    ['text' => $row['text']],
                 );
                 $imported++;
             }

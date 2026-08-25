@@ -63,6 +63,7 @@ class RenderPipeline
         $job->update([
             'status' => RenderStatus::Completed,
             'cache_hit' => $hit,
+            'credits' => $hit ? 0 : $job->credits,
             'output_path' => $cache->output_path,
             'duration_ms' => $cache->duration_ms,
             'error' => null,

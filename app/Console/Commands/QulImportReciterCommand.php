@@ -6,76 +6,100 @@ use App\Models\AyahAudio;
 use App\Models\Reciter;
 use App\Rendering\Ffmpeg;
 use App\Support\QulClient;
+use App\Support\QulDump;
 use App\Support\SurahRange;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
+use JsonException;
+use RuntimeException;
 
 class QulImportReciterCommand extends Command
 {
     protected $signature = 'qul:import-reciter
-        {reciter=7 : Quran.com / QUL ayah-recitation id (7=Mishari, 6=Husary, 3=Sudais)}
+        {reciter=18 : QUL ayah recitation id (18=Mishari, 20=Husary, 16=Sudais)}
+        {--file= : QUL recitation JSON or SQLite dump}
         {--surahs= : Comma/range list such as 1,36,112-114}
         {--download-audio : Download mp3 files into local library storage}';
 
-    protected $description = 'Import an ayah-by-ayah reciter and optionally download its mp3s';
+    protected $description = 'Import a QUL ayah-by-ayah reciter and download its mp3s locally';
 
     public function handle(QulClient $client, Ffmpeg $ffmpeg): int
     {
         $reciterId = (string) $this->argument('reciter');
         $download = (bool) $this->option('download-audio');
         $surahs = SurahRange::parse($this->option('surahs')) ?? range(1, 114);
+        $file = $this->option('file');
 
-        $catalog = $client->quranCom()->get('/resources/recitations')->throw()->json('recitations');
-        $catalog = is_array($catalog) ? $catalog : [];
-        $meta = collect($catalog)->first(
-            fn (mixed $row): bool => is_array($row) && (int) ($row['id'] ?? 0) === (int) $reciterId
-        );
+        $meta = $client->ayahRecitation($reciterId);
+        $name = $meta['name'] ?? 'QUL reciter '.$reciterId;
+        $style = $meta['style'] ?? null;
 
-        if (! is_array($meta)) {
-            $this->error("Reciter {$reciterId} not found.");
-
-            return self::FAILURE;
+        if (filled($style) && ! str_contains($name, $style)) {
+            $name .= ' ('.$style.')';
         }
 
         $reciter = Reciter::query()->updateOrCreate(
             ['qul_resource_id' => $reciterId],
             [
-                'name' => $meta['reciter_name'].($meta['style'] ? ' ('.$meta['style'].')' : ''),
+                'name' => $name,
                 'granularity' => 'ayah',
             ],
         );
 
-        $disk = Storage::disk(config('bayan.disks.library'));
+        try {
+            $files = is_string($file) && $file !== ''
+                ? QulDump::audioFrom($file)
+                : $this->audioFromApi($client, $reciterId);
+        } catch (InvalidArgumentException|JsonException|RuntimeException|RequestException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        if ($files === []) {
+            $this->error('No ayah audio in that dump or QUL recitation. Download JSON from https://qul.tarteel.ai/resources/recitation or pass a valid reciter id.');
+
+            return self::FAILURE;
+        }
+
+        $disk = Storage::disk((string) config('bayan.disks.library'));
         $imported = 0;
 
-        foreach ($surahs as $surah) {
-            $files = $this->audioFiles($client, (int) $reciterId, $surah);
-
-            foreach ($files as $file) {
-                [$s, $a] = array_map('intval', explode(':', $file['verse_key'], 2));
-                $relative = "audio/{$reciter->id}/{$s}/{$a}.mp3";
-                $duration = 0;
-
-                if ($download) {
-                    $absoluteUrl = str_starts_with($file['url'], 'http')
-                        ? $file['url']
-                        : rtrim((string) config('bayan.qul.audio_cdn'), '/').'/'.$file['url'];
-                    $disk->put($relative, Http::timeout(60)->get($absoluteUrl)->throw()->body());
-                    $duration = $ffmpeg->durationMs($disk->path($relative));
-                }
-
-                AyahAudio::query()->updateOrCreate(
-                    ['reciter_id' => $reciter->id, 'surah' => $s, 'ayah' => $a],
-                    [
-                        'path' => $relative,
-                        'duration_ms' => $duration ?: (int) ($file['duration_ms'] ?? 0),
-                    ],
-                );
-                $imported++;
+        foreach ($files as $fileRow) {
+            if (! in_array($fileRow['surah'], $surahs, true)) {
+                continue;
             }
 
-            $this->line("Surah {$surah}: ".count($files).' ayahs');
+            $relative = "audio/{$reciter->id}/{$fileRow['surah']}/{$fileRow['ayah']}.mp3";
+            $duration = $fileRow['duration_ms'];
+
+            if ($download) {
+                $response = Http::connectTimeout(10)
+                    ->timeout(60)
+                    ->retry([100, 500, 1000])
+                    ->get($fileRow['audio_url']);
+
+                if ($response->failed()) {
+                    $this->warn("Skipped {$fileRow['surah']}:{$fileRow['ayah']} ({$response->status()})");
+
+                    continue;
+                }
+
+                $disk->put($relative, $response->body());
+                $duration = $ffmpeg->durationMs($disk->path($relative));
+            }
+
+            AyahAudio::query()->updateOrCreate(
+                ['reciter_id' => $reciter->id, 'surah' => $fileRow['surah'], 'ayah' => $fileRow['ayah']],
+                [
+                    'path' => $relative,
+                    'duration_ms' => $duration,
+                ],
+            );
+            $imported++;
         }
 
         $this->info("Imported {$imported} ayah audio rows for {$reciter->name}.");
@@ -84,44 +108,15 @@ class QulImportReciterCommand extends Command
     }
 
     /**
-     * @return list<array{verse_key: string, url: string, duration_ms?: int}>
+     * @return list<array{surah: int, ayah: int, audio_url: string, duration_ms: int}>
      */
-    private function audioFiles(QulClient $client, int $reciterId, int $surah): array
+    private function audioFromApi(QulClient $client, string $reciterId): array
     {
-        $page = 1;
-        $files = [];
+        $payload = $client->qul()
+            ->get("/api/v1/audio/ayah_recitations/{$reciterId}")
+            ->throw()
+            ->json();
 
-        do {
-            $payload = $client->quranCom()
-                ->get("/recitations/{$reciterId}/by_chapter/{$surah}", ['per_page' => 300, 'page' => $page])
-                ->throw()
-                ->json();
-
-            if (! is_array($payload)) {
-                break;
-            }
-
-            $chunk = $payload['audio_files'] ?? [];
-            if (is_array($chunk)) {
-                foreach ($chunk as $file) {
-                    if (! is_array($file) || ! isset($file['verse_key'], $file['url'])) {
-                        continue;
-                    }
-
-                    $row = [
-                        'verse_key' => (string) $file['verse_key'],
-                        'url' => (string) $file['url'],
-                    ];
-                    if (isset($file['duration_ms'])) {
-                        $row['duration_ms'] = (int) $file['duration_ms'];
-                    }
-                    $files[] = $row;
-                }
-            }
-
-            $page = $payload['pagination']['next_page'] ?? null;
-        } while ($page);
-
-        return $files;
+        return QulDump::audio($payload);
     }
 }

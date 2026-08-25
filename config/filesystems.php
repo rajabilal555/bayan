@@ -50,6 +50,8 @@ return [
         'library' => [
             'driver' => 'local',
             'root' => storage_path('app/library'),
+            'url' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/library',
+            'serve' => true,
             'throw' => true,
             'report' => false,
         ],

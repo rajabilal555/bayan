@@ -30,7 +30,7 @@ class AssGenerator
             'ScriptType: v4.00+',
             "PlayResX: {$width}",
             "PlayResY: {$height}",
-            'WrapStyle: 0',
+            'WrapStyle: 2',
             'ScaledBorderAndShadow: yes',
             '',
             '[V4+ Styles]',
@@ -42,16 +42,35 @@ class AssGenerator
             'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
         ];
 
+        $arabicPosition = SubtitlePosition::tryFrom((string) $arabic['position']) ?? SubtitlePosition::Bottom;
+        $translationPosition = SubtitlePosition::tryFrom((string) $translation['position']) ?? SubtitlePosition::Bottom;
+        $stackAtCenter = $showArabic
+            && $showTranslation
+            && $arabicPosition === SubtitlePosition::Center
+            && $translationPosition === SubtitlePosition::Center;
+
         foreach ($cues as $cue) {
             $start = $this->timestamp($cue['start_ms']);
             $end = $this->timestamp($cue['end_ms']);
+            $arabicText = $cue['arabic'] ?? null;
+            $translationText = $cue['translation'] ?? null;
+            $hasArabic = $showArabic && filled($arabicText);
+            $hasTranslation = $showTranslation && filled($translationText);
 
-            if ($showArabic && filled($cue['arabic'] ?? null)) {
-                $lines[] = $this->dialogue(0, $start, $end, 'Arabic', $cue['arabic']);
+            if ($stackAtCenter && $hasArabic && $hasTranslation) {
+                $center = $this->stackedCenterOverrides($width, $height, (int) $arabic['size']);
+                $lines[] = $this->dialogue(0, $start, $end, 'Arabic', (string) $arabicText, $center['arabic']);
+                $lines[] = $this->dialogue(1, $start, $end, 'Translation', (string) $translationText, $center['translation']);
+
+                continue;
             }
 
-            if ($showTranslation && filled($cue['translation'] ?? null)) {
-                $lines[] = $this->dialogue(1, $start, $end, 'Translation', $cue['translation']);
+            if ($hasArabic) {
+                $lines[] = $this->dialogue(0, $start, $end, 'Arabic', (string) $arabicText);
+            }
+
+            if ($hasTranslation) {
+                $lines[] = $this->dialogue(1, $start, $end, 'Translation', (string) $translationText);
             }
         }
 
@@ -70,23 +89,44 @@ class AssGenerator
             SubtitlePosition::Bottom => 160,
         };
 
+        $outline = max(2, intdiv((int) $style['size'], 24));
+
         return sprintf(
-            'Style: %s,%s,%d,%s,&H000000FF,%s,&H80000000,0,0,0,0,100,100,0,0,1,3,0,%d,80,80,%d,1',
+            'Style: %s,%s,%d,%s,&H000000FF,%s,&H80000000,0,0,0,0,100,100,0,0,1,%d,1,%d,120,120,%d,1',
             $name,
             $style['font'],
             $style['size'],
             $this->assColor((string) $style['color']),
             $this->assColor((string) $style['outline']),
+            $outline,
             $position->assAlignment(),
             $marginV,
         );
     }
 
-    private function dialogue(int $layer, string $start, string $end, string $style, string $text): string
+    /**
+     * @return array{arabic: string, translation: string}
+     */
+    private function stackedCenterOverrides(int $width, int $height, int $arabicSize): array
     {
-        $escaped = str_replace(['\\', '{', '}', "\n"], ['\\\\', '\\{', '\\}', '\\N'], $text);
+        $x = intdiv($width, 2);
+        $y = intdiv($height, 2);
+        $gap = max(36, intdiv($arabicSize, 2));
 
-        return "Dialogue: {$layer},{$start},{$end},{$style},,0,0,0,,{\\q2}{$escaped}";
+        return [
+            'arabic' => sprintf('{\\an2\\pos(%d,%d)\\q2}', $x, $y - $gap),
+            'translation' => sprintf('{\\an8\\pos(%d,%d)\\q2}', $x, $y + $gap),
+        ];
+    }
+
+    private function dialogue(int $layer, string $start, string $end, string $style, string $text, string $overrides = '{\\q2}'): string
+    {
+        return "Dialogue: {$layer},{$start},{$end},{$style},,0,0,0,,{$overrides}{$this->escapeAss($text)}";
+    }
+
+    private function escapeAss(string $text): string
+    {
+        return str_replace(['\\', '{', '}', "\n"], ['\\\\', '\\{', '\\}', '\\N'], $text);
     }
 
     public function timestamp(int $ms): string

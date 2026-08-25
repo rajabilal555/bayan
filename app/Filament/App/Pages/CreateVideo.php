@@ -11,6 +11,7 @@ use App\Models\Reciter;
 use App\Models\Surah;
 use App\Models\TranslationSource;
 use App\Models\User;
+use App\Support\RenderQuota;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
@@ -34,6 +35,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\HtmlString;
 use UnitEnum;
 
 /**
@@ -119,9 +121,16 @@ class CreateVideo extends Page
                             ->required()
                             ->live()
                             ->afterStateUpdated(function (mixed $state, Set $set): void {
-                                $count = (int) Surah::query()->where('number', $state)->value('ayah_count');
+                                $count = (int) Surah::query()->where('number', $state)->value('ayah_count') ?: 1;
+                                $user = Auth::user();
+                                $budget = RenderQuota::ayahsPerRender();
+
+                                if ($user instanceof User && $user->remainingRenders() > 0) {
+                                    $budget = max($budget, RenderQuota::maxAyahs($user->remainingRenders()));
+                                }
+
                                 $set('ayah_start', 1);
-                                $set('ayah_end', $count ?: 1);
+                                $set('ayah_end', min($count, $budget));
                             })
                             ->columnSpanFull(),
                         Select::make('ayah_start')
@@ -132,10 +141,12 @@ class CreateVideo extends Page
                         Select::make('ayah_end')
                             ->label('To ayah')
                             ->options(fn (Get $get) => $this->ayahOptions((int) $get('surah')))
+                            ->helperText(fn (Get $get): string => $this->rangeCostPreview($get))
                             ->required()
                             ->live(),
                         Toggle::make('include_bismillah')
                             ->label('Include Bismillah')
+                            ->live()
                             ->columnSpanFull(),
                     ]),
                 Section::make('Picture')
@@ -144,9 +155,7 @@ class CreateVideo extends Page
                     ->schema([
                         Radio::make('background_id')
                             ->label('Background')
-                            ->options(fn () => Background::query()->orderBy('category')->get()->mapWithKeys(
-                                fn (Background $background) => [$background->id => $background->label.' · '.$background->category]
-                            ))
+                            ->options(fn () => $this->backgroundOptions())
                             ->required()
                             ->columns(2)
                             ->live()
@@ -201,13 +210,7 @@ class CreateVideo extends Page
                     ->schema([
                         Placeholder::make('quota')
                             ->label('Daily quota')
-                            ->content(function (): string {
-                                $user = Auth::user();
-
-                                return $user instanceof User
-                                    ? $user->remainingRenders().' new renders left today (cache hits are free)'
-                                    : '—';
-                            }),
+                            ->content(fn (Get $get): string => $this->quotaPreview($get)),
                         Placeholder::make('duration')
                             ->label('Estimated duration')
                             ->content(fn (Get $get) => $this->durationPreview($get)),
@@ -251,6 +254,33 @@ class CreateVideo extends Page
     }
 
     /**
+     * @return array<int, HtmlString>
+     */
+    private function backgroundOptions(): array
+    {
+        $options = [];
+
+        foreach (Background::query()->orderBy('category')->orderBy('label')->get() as $background) {
+            $options[$background->id] = $this->backgroundOptionLabel($background);
+        }
+
+        return $options;
+    }
+
+    private function backgroundOptionLabel(Background $background): HtmlString
+    {
+        $caption = e($background->label).' · '.e($background->category);
+        $url = $background->thumbnailUrl();
+        $image = $url === null
+            ? ''
+            : '<img src="'.e($url).'" alt="'.$caption.'" style="width:100%;height:7rem;object-fit:cover;border-radius:0.5rem;display:block;background:rgba(15,23,42,.35)">';
+
+        return new HtmlString(
+            '<span style="display:flex;flex-direction:column;gap:0.5rem">'.$image.'<span>'.$caption.'</span></span>'
+        );
+    }
+
+    /**
      * @return array<int, int>
      */
     private function ayahOptions(int $surah): array
@@ -291,9 +321,46 @@ class CreateVideo extends Page
                 ->inline()
                 ->required(),
             Select::make("{$prefix}.size")
-                ->options([36 => '36', 42 => '42', 48 => '48', 56 => '56', 64 => '64', 72 => '72', 88 => '88'])
+                ->options([28 => '28', 32 => '32', 36 => '36', 42 => '42', 48 => '48', 56 => '56', 64 => '64', 72 => '72', 88 => '88'])
                 ->required(),
         ];
+    }
+
+    private function quotaPreview(Get $get): string
+    {
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            return '—';
+        }
+
+        $remaining = $user->remainingRenders();
+        $per = RenderQuota::ayahsPerRender();
+        $cost = RenderQuota::creditsFor($this->selectedAyahCount($get));
+
+        return "{$remaining} new renders left today ({$per} ayahs per render). This range uses {$cost}. Cache hits are free.";
+    }
+
+    private function rangeCostPreview(Get $get): string
+    {
+        $ayahs = $this->selectedAyahCount($get);
+        $cost = RenderQuota::creditsFor($ayahs);
+
+        if ($cost === 1) {
+            return "{$ayahs} ayahs · 1 render";
+        }
+
+        return "{$ayahs} ayahs · {$cost} renders";
+    }
+
+    private function selectedAyahCount(Get $get): int
+    {
+        return RenderQuota::ayahCount(
+            (int) $get('ayah_start'),
+            (int) $get('ayah_end'),
+            (bool) $get('include_bismillah'),
+            (int) $get('surah'),
+        );
     }
 
     private function durationPreview(Get $get): string

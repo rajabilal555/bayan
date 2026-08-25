@@ -225,6 +225,8 @@ class Renderer
         $this->ffmpeg->run([
             ...$args,
             '-t', $duration,
+            '-map', '0:v:0',
+            '-map', '1:a:0',
             '-vf', $filter,
             '-c:v', 'libx264',
             '-pix_fmt', 'yuv420p',

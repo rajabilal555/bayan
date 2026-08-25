@@ -12,6 +12,7 @@ use App\Models\Surah;
 use App\Models\User;
 use App\Rendering\Fingerprint;
 use App\Rendering\RenderPipeline;
+use App\Support\RenderQuota;
 use Illuminate\Validation\ValidationException;
 
 class SubmitRender
@@ -49,10 +50,22 @@ class SubmitRender
 
         $fingerprint = Fingerprint::make($data);
         $cached = RenderCache::query()->where('fingerprint', $fingerprint)->first();
+        $ayahCount = RenderQuota::ayahCount(
+            (int) $data['ayah_start'],
+            (int) $data['ayah_end'],
+            (bool) $data['include_bismillah'],
+            (int) $data['surah'],
+        );
+        $credits = $cached ? 0 : RenderQuota::creditsFor($ayahCount);
 
-        if (! $cached && $user->remainingRenders() <= 0) {
+        if (! $cached && $user->remainingRenders() < $credits) {
+            $remaining = $user->remainingRenders();
+            $maxAyahs = RenderQuota::maxAyahs($remaining);
+
             throw ValidationException::withMessages([
-                'surah' => 'Daily render limit reached.'.($user->hasVerifiedEmail() ? '' : ' Verify your email for a higher limit.'),
+                'ayah_end' => $remaining === 0
+                    ? 'Daily render limit reached.'.($user->hasVerifiedEmail() ? '' : ' Verify your email for a higher limit.')
+                    : "This range is {$ayahCount} ayahs and costs {$credits} renders. You have {$remaining} left ({$maxAyahs} ayahs).",
             ]);
         }
 
@@ -72,6 +85,7 @@ class SubmitRender
             'include_bismillah' => $data['include_bismillah'],
             'loop_background' => $data['loop_background'],
             'fingerprint' => $fingerprint,
+            'credits' => $credits,
             'status' => RenderStatus::Pending,
         ]);
 

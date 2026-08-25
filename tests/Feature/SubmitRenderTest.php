@@ -113,6 +113,74 @@ test('daily limit blocks cache misses but not cache hits', function () {
     Queue::assertNothingPushed();
 });
 
+test('ranges over the ayah threshold consume extra render credits', function () {
+    Queue::fake();
+
+    $user = User::factory()->unverified()->create();
+    $reciter = Reciter::factory()->create();
+    $background = Background::factory()->create();
+    $surah = Surah::factory()->create(['number' => 95, 'ayah_count' => 8]);
+
+    foreach (range(1, 8) as $ayah) {
+        AyahAudio::factory()->recycle($reciter)->create(['surah' => 95, 'ayah' => $ayah]);
+    }
+
+    $payload = renderPayload($reciter, $background, $surah);
+    $payload['ayah_end'] = 8;
+
+    $job = app(SubmitRender::class)->handle($user, $payload);
+
+    expect($job->credits)->toBe(2)
+        ->and($user->fresh()->remainingRenders())->toBe(3);
+});
+
+test('rejects ranges that cost more renders than remain', function () {
+    Queue::fake();
+
+    $user = User::factory()->unverified()->create(['daily_render_limit' => 1]);
+    $reciter = Reciter::factory()->create();
+    $background = Background::factory()->create();
+    $surah = Surah::factory()->create(['number' => 94, 'ayah_count' => 8]);
+
+    foreach (range(1, 8) as $ayah) {
+        AyahAudio::factory()->recycle($reciter)->create(['surah' => 94, 'ayah' => $ayah]);
+    }
+
+    $payload = renderPayload($reciter, $background, $surah);
+    $payload['ayah_end'] = 8;
+
+    expect(fn () => app(SubmitRender::class)->handle($user, $payload))
+        ->toThrow(ValidationException::class);
+});
+
+test('cache hits of long ranges do not consume extra credits', function () {
+    Queue::fake();
+
+    $user = User::factory()->unverified()->create(['daily_render_limit' => 0]);
+    $reciter = Reciter::factory()->create();
+    $background = Background::factory()->create();
+    $surah = Surah::factory()->create(['number' => 93, 'ayah_count' => 8]);
+
+    foreach (range(1, 8) as $ayah) {
+        AyahAudio::factory()->recycle($reciter)->create(['surah' => 93, 'ayah' => $ayah]);
+    }
+
+    $payload = renderPayload($reciter, $background, $surah);
+    $payload['ayah_end'] = 8;
+
+    RenderCache::factory()->create([
+        'fingerprint' => Fingerprint::make($payload),
+        'output_path' => 'cached-long.mp4',
+        'duration_ms' => 8000,
+    ]);
+
+    $job = app(SubmitRender::class)->handle($user, $payload);
+
+    expect($job->cache_hit)->toBeTrue()
+        ->and($job->credits)->toBe(0)
+        ->and($job->status)->toBe(RenderStatus::Completed);
+});
+
 test('rejects when both text layers are off', function () {
     $user = User::factory()->create();
     $reciter = Reciter::factory()->create();

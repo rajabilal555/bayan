@@ -6,4 +6,5 @@ framework_version: "13"
 secured: true
 workers:
   - horizon
+  - schedule
   - vite

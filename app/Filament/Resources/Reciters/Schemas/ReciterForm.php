@@ -12,7 +12,7 @@ class ReciterForm
         return $schema
             ->components([
                 TextInput::make('name')->required()->maxLength(255),
-                TextInput::make('qul_resource_id')->label('QUL / Quran.com id')->required()->maxLength(255),
+                TextInput::make('qul_resource_id')->label('QUL recitation id')->required()->maxLength(255),
                 TextInput::make('granularity')->default('ayah')->required(),
             ]);
     }

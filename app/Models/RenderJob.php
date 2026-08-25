@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\URL;
  * @property bool $loop_background
  * @property string $fingerprint
  * @property bool $cache_hit
+ * @property int $credits
  * @property RenderStatus $status
  * @property string|null $error
  * @property string|null $output_path
@@ -51,6 +52,7 @@ use Illuminate\Support\Facades\URL;
     'loop_background',
     'fingerprint',
     'cache_hit',
+    'credits',
     'status',
     'error',
     'output_path',
@@ -67,6 +69,7 @@ class RenderJob extends Model
     protected $attributes = [
         'status' => 'pending',
         'cache_hit' => false,
+        'credits' => 1,
         'show_arabic' => true,
         'show_translation' => false,
         'include_bismillah' => false,
