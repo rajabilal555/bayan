@@ -10,8 +10,7 @@ return new class extends Migration
     {
         Schema::create('reciters', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
-            $table->string('qul_resource_id')->unique();
+            $table->string('name')->unique();
             $table->string('granularity')->default('ayah');
             $table->timestamps();
         });

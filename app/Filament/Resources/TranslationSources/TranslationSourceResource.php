@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\TranslationSources;
 
-use App\Filament\Resources\TranslationSources\Pages\CreateTranslationSource;
 use App\Filament\Resources\TranslationSources\Pages\EditTranslationSource;
 use App\Filament\Resources\TranslationSources\Pages\ListTranslationSources;
 use App\Filament\Resources\TranslationSources\Schemas\TranslationSourceForm;
@@ -25,6 +24,11 @@ class TranslationSourceResource extends Resource
 
     protected static ?int $navigationSort = 4;
 
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return TranslationSourceForm::configure($schema);
@@ -46,7 +50,6 @@ class TranslationSourceResource extends Resource
     {
         return [
             'index' => ListTranslationSources::route('/'),
-            'create' => CreateTranslationSource::route('/create'),
             'edit' => EditTranslationSource::route('/{record}/edit'),
         ];
     }

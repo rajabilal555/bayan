@@ -4,7 +4,6 @@ namespace App\Filament\Resources\TranslationSources\Pages;
 
 use App\Filament\Actions\LibraryImportActions;
 use App\Filament\Resources\TranslationSources\TranslationSourceResource;
-use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListTranslationSources extends ListRecords
@@ -15,7 +14,6 @@ class ListTranslationSources extends ListRecords
     {
         return [
             LibraryImportActions::translation(),
-            CreateAction::make(),
         ];
     }
 }

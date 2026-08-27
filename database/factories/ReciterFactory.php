@@ -13,8 +13,7 @@ class ReciterFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => 'Mishari Rashid al-Afasy',
-            'qul_resource_id' => (string) fake()->unique()->numberBetween(1, 9999),
+            'name' => fake()->unique()->name(),
             'granularity' => 'ayah',
         ];
     }

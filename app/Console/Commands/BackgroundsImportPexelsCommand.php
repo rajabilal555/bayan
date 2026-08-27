@@ -44,7 +44,7 @@ class BackgroundsImportPexelsCommand extends Command
             $videos = Http::withHeaders(['Authorization' => config('bayan.pexels.key')])
                 ->get('https://api.pexels.com/videos/search', [
                     'query' => $query['query'],
-                    'per_page' => 4,
+                    'per_page' => 1,
                     'orientation' => 'landscape',
                 ])
                 ->throw()

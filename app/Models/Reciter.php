@@ -11,10 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property int $id
  * @property string $name
- * @property string $qul_resource_id
  * @property string $granularity
  */
-#[Fillable(['name', 'qul_resource_id', 'granularity'])]
+#[Fillable(['name', 'granularity'])]
 class Reciter extends Model
 {
     /** @use HasFactory<ReciterFactory> */

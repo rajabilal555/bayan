@@ -12,7 +12,6 @@ return new class extends Migration
             $table->id();
             $table->string('slug')->unique();
             $table->string('name');
-            $table->string('qul_resource_id');
             $table->timestamps();
         });
     }

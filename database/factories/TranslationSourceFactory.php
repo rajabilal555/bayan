@@ -15,7 +15,6 @@ class TranslationSourceFactory extends Factory
         return [
             'slug' => fake()->unique()->slug(2),
             'name' => 'Saheeh International',
-            'qul_resource_id' => '20',
         ];
     }
 }

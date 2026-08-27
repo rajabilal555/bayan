@@ -12,9 +12,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $id
  * @property string $slug
  * @property string $name
- * @property string $qul_resource_id
  */
-#[Fillable(['slug', 'name', 'qul_resource_id'])]
+#[Fillable(['slug', 'name'])]
 class TranslationSource extends Model
 {
     /** @use HasFactory<TranslationSourceFactory> */

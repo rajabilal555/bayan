@@ -2,15 +2,23 @@
 
 namespace App\Filament\Actions;
 
+use App\Actions\ImportReciterDump;
+use App\Actions\ImportScriptDump;
+use App\Actions\ImportSurahs;
+use App\Actions\ImportTranslationDump;
 use App\Jobs\RunImportCommand;
-use App\Models\Reciter;
+use App\Support\LibraryDumps;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
+use InvalidArgumentException;
+use JsonException;
+use RuntimeException;
+use Spatie\LaravelData\Exceptions\CannotCreateData;
+use Throwable;
 
 class LibraryImportActions
 {
@@ -22,7 +30,21 @@ class LibraryImportActions
             ->requiresConfirmation()
             ->modalHeading('Import surah metadata')
             ->modalDescription('Pull chapter names and ayah counts from QUL.')
-            ->action(fn () => self::queue('qul:import-surahs'));
+            ->action(function (): void {
+                try {
+                    $imported = app(ImportSurahs::class)->handle();
+                } catch (Throwable $exception) {
+                    self::failed($exception);
+
+                    return;
+                }
+
+                Notification::make()
+                    ->title('Surahs imported')
+                    ->body("Imported {$imported} surahs.")
+                    ->success()
+                    ->send();
+            });
     }
 
     public static function script(): Action
@@ -31,22 +53,26 @@ class LibraryImportActions
             ->label('Import script')
             ->icon(Heroicon::OutlinedLanguage)
             ->schema([
-                self::dumpUpload(
-                    'https://qul.tarteel.ai/resources/quran-script',
-                )->required(),
-                self::surahsInput(),
+                self::dumpUpload('https://qul.tarteel.ai/resources/quran-script')->required(),
             ])
             ->modalHeading('Import Quran Script')
-            ->modalDescription(
-                'QUL has no public script API. Download JSON or SQLite from the Quran Script resources page.',
-            )
+            ->modalDescription('Upload a Quran Script JSON dump. This replaces the previous script dump.')
             ->modalSubmitActionLabel('Queue import')
-            ->action(
-                fn (array $data) => self::queue('qul:import-script', [
-                    '--file' => self::uploadedFile($data),
-                    '--surahs' => $data['surahs'] ?? null,
-                ]),
-            );
+            ->action(function (array $data): void {
+                try {
+                    $count = app(ImportScriptDump::class)->handle(LibraryDumps::uploadedRelative($data['file'] ?? null));
+                } catch (Throwable $exception) {
+                    self::failed($exception);
+
+                    return;
+                }
+
+                Notification::make()
+                    ->title('Script import queued')
+                    ->body("Parsed {$count} ayahs. Persist will run on Horizon.")
+                    ->success()
+                    ->send();
+            });
     }
 
     public static function translation(): Action
@@ -55,25 +81,38 @@ class LibraryImportActions
             ->label('Import translation')
             ->icon(Heroicon::OutlinedLanguage)
             ->schema([
-                Select::make('source')
-                    ->label('QUL translation')
-                    ->options([
-                        'saheeh' => 'Saheeh International',
-                        'clearquran' => 'The Clear Quran (Khattab)',
-                        'pickthall' => 'Pickthall',
-                        'yusufali' => 'Yusuf Ali',
-                    ])
-                    ->default('saheeh')
-                    ->required(),
-                self::surahsInput(),
+                TextInput::make('name')
+                    ->required()
+                    ->maxLength(255),
+                TextInput::make('slug')
+                    ->maxLength(255)
+                    ->helperText('Leave blank to slugify the name. Re-import with the same slug to replace.'),
+                self::dumpUpload('https://qul.tarteel.ai/resources/translation')->required(),
             ])
+            ->modalHeading('Import translation')
+            ->modalDescription('Upload a QUL translation JSON dump (verse keys with t/f). Footnotes are stripped from stored text.')
             ->modalSubmitActionLabel('Queue import')
-            ->action(
-                fn (array $data) => self::queue('qul:import-translation', [
-                    'source' => $data['source'],
-                    '--surahs' => $data['surahs'] ?? null,
-                ]),
-            );
+            ->action(function (array $data): void {
+                try {
+                    $source = app(ImportTranslationDump::class)->handle(
+                        LibraryDumps::uploadedRelative($data['file'] ?? null),
+                        (string) $data['name'],
+                        isset($data['slug']) && is_string($data['slug']) && $data['slug'] !== ''
+                            ? $data['slug']
+                            : null,
+                    );
+                } catch (Throwable $exception) {
+                    self::failed($exception);
+
+                    return;
+                }
+
+                Notification::make()
+                    ->title('Translation import queued')
+                    ->body("{$source->name} will persist on Horizon.")
+                    ->success()
+                    ->send();
+            });
     }
 
     public static function reciter(): Action
@@ -82,51 +121,32 @@ class LibraryImportActions
             ->label('Import reciter')
             ->icon(Heroicon::OutlinedMicrophone)
             ->schema([
-                Select::make('reciter')
-                    ->label('QUL reciter')
-                    ->options([
-                        '18' => 'Mishari Rashid al Afasy (18)',
-                        '20' => 'Mahmoud Khalil Al Husary (20)',
-                        '16' => 'Abd ur Rahman as Sudais (16)',
-                    ])
-                    ->default('18')
-                    ->required(),
-                self::surahsInput(),
-                Toggle::make('download_audio')
-                    ->label('Download MP3s')
-                    ->helperText(
-                        'Copies audio from QUL into local storage. Tarteel CDN is not hotlinked at runtime.',
-                    )
-                    ->default(true),
+                TextInput::make('name')
+                    ->required()
+                    ->maxLength(255)
+                    ->helperText('Re-import with the same name to replace.'),
+                self::dumpUpload('https://qul.tarteel.ai/resources/recitation')->required(),
             ])
+            ->modalHeading('Import reciter')
+            ->modalDescription('Upload an ayah-by-ayah JSON dump (verse keys with audio_url). MP3s are copied locally; one Horizon job runs per surah. Existing mp3s are skipped.')
             ->modalSubmitActionLabel('Queue import')
-            ->action(
-                fn (array $data) => self::queue('qul:import-reciter', [
-                    'reciter' => $data['reciter'],
-                    '--surahs' => $data['surahs'] ?? null,
-                    '--download-audio' => (bool) ($data['download_audio'] ?? false),
-                ]),
-            );
-    }
+            ->action(function (array $data): void {
+                try {
+                    $reciter = app(ImportReciterDump::class)->handle(
+                        LibraryDumps::uploadedRelative($data['file'] ?? null),
+                        (string) $data['name'],
+                    );
+                } catch (Throwable $exception) {
+                    self::failed($exception);
 
-    public static function reciterAudio(): Action
-    {
-        return Action::make('importAudio')
-            ->label('Import audio')
-            ->icon(Heroicon::OutlinedArrowDownTray)
-            ->schema([
-                self::surahsInput(),
-                Toggle::make('download_audio')
-                    ->label('Download MP3s')
-                    ->default(true),
-            ])
-            ->modalSubmitActionLabel('Queue import')
-            ->action(function (Reciter $record, array $data): void {
-                self::queue('qul:import-reciter', [
-                    'reciter' => $record->qul_resource_id,
-                    '--surahs' => $data['surahs'] ?? null,
-                    '--download-audio' => (bool) ($data['download_audio'] ?? false),
-                ]);
+                    return;
+                }
+
+                Notification::make()
+                    ->title('Reciter import queued')
+                    ->body("{$reciter->name}: one download job per surah on the library queue.")
+                    ->success()
+                    ->send();
             });
     }
 
@@ -161,44 +181,17 @@ class LibraryImportActions
     {
         return FileUpload::make('file')
             ->label('QUL dump')
-            ->helperText('JSON or SQLite from '.$url)
+            ->helperText('JSON from '.$url)
             ->disk((string) config('bayan.disks.library'))
-            ->directory('imports')
-            ->visibility('private')
+            ->directory('imports/incoming')
             ->acceptedFileTypes([
                 'application/json',
+                'text/json',
                 'text/plain',
                 'application/octet-stream',
-                'application/vnd.sqlite3',
-                'application/x-sqlite3',
             ])
-            ->nullable()
+            ->required()
             ->maxSize(102400);
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private static function uploadedFile(array $data): ?string
-    {
-        $file = $data['file'] ?? null;
-
-        if (is_array($file)) {
-            $file = $file[0] ?? null;
-        }
-
-        return is_string($file) && $file !== '' ? $file : null;
-    }
-
-    private static function surahsInput(): TextInput
-    {
-        return TextInput::make('surahs')
-            ->label('Surahs')
-            ->placeholder('All')
-            ->helperText(
-                'Comma or range, e.g. 1,36,112-114. Leave blank for all.',
-            )
-            ->rules(['nullable', 'regex:/^[\d,\s\-]+$/']);
     }
 
     /**
@@ -219,6 +212,26 @@ class LibraryImportActions
             ->title('Import queued')
             ->body($command.' will run on Horizon.')
             ->success()
+            ->send();
+    }
+
+    private static function failed(Throwable $exception): void
+    {
+        $message = $exception instanceof InvalidArgumentException
+            || $exception instanceof JsonException
+            || $exception instanceof RuntimeException
+            || $exception instanceof CannotCreateData
+            ? $exception->getMessage()
+            : 'Import failed.';
+
+        if ($message === 'Import failed.') {
+            report($exception);
+        }
+
+        Notification::make()
+            ->title('Import failed')
+            ->body($message)
+            ->danger()
             ->send();
     }
 }

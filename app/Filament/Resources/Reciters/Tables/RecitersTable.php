@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Reciters\Tables;
 
-use App\Filament\Actions\LibraryImportActions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -16,11 +15,9 @@ class RecitersTable
         return $table
             ->columns([
                 TextColumn::make('name')->searchable()->sortable(),
-                TextColumn::make('qul_resource_id')->label('QUL id'),
                 TextColumn::make('ayah_audio_count')->counts('ayahAudio')->label('Ayahs'),
             ])
             ->recordActions([
-                LibraryImportActions::reciterAudio(),
                 EditAction::make(),
             ])
             ->toolbarActions([

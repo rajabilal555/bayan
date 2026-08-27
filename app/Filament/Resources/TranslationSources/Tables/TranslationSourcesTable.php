@@ -16,7 +16,6 @@ class TranslationSourcesTable
             ->columns([
                 TextColumn::make('name')->searchable(),
                 TextColumn::make('slug'),
-                TextColumn::make('qul_resource_id')->label('QUL id'),
                 TextColumn::make('translations_count')->counts('translations')->label('Ayahs'),
             ])
             ->recordActions([

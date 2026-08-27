@@ -41,7 +41,7 @@ class Fingerprint
             'color' => strtoupper((string) ($style['color'] ?? '#FFFFFF')),
             'outline' => strtoupper((string) ($style['outline'] ?? '#000000')),
             'position' => (string) ($style['position'] ?? 'bottom'),
-            'size' => (int) ($style['size'] ?? 48),
+            'size' => (int) ($style['size'] ?? 64),
         ];
 
         ksort($normalized);

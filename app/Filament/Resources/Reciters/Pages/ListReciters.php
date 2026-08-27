@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Reciters\Pages;
 
 use App\Filament\Actions\LibraryImportActions;
 use App\Filament\Resources\Reciters\ReciterResource;
-use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListReciters extends ListRecords
@@ -15,7 +14,6 @@ class ListReciters extends ListRecords
     {
         return [
             LibraryImportActions::reciter(),
-            CreateAction::make(),
         ];
     }
 }

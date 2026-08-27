@@ -7,6 +7,8 @@ use App\Enums\SubtitlePosition;
 
 class AssGenerator
 {
+    public function __construct(private AssLayout $layout = new AssLayout) {}
+
     /**
      * @param  list<array{start_ms: int, end_ms: int, arabic?: string|null, translation?: string|null}>  $cues
      * @param  array<string, mixed>  $arabicStyle
@@ -30,7 +32,7 @@ class AssGenerator
             'ScriptType: v4.00+',
             "PlayResX: {$width}",
             "PlayResY: {$height}",
-            'WrapStyle: 2',
+            "WrapStyle: {$this->layout->wrapStyle}",
             'ScaledBorderAndShadow: yes',
             '',
             '[V4+ Styles]',
@@ -83,16 +85,10 @@ class AssGenerator
     private function styleLine(string $name, array $style): string
     {
         $position = SubtitlePosition::tryFrom((string) $style['position']) ?? SubtitlePosition::Bottom;
-        $marginV = match ($position) {
-            SubtitlePosition::Top => 120,
-            SubtitlePosition::Center => 0,
-            SubtitlePosition::Bottom => 160,
-        };
-
         $outline = max(2, intdiv((int) $style['size'], 24));
 
         return sprintf(
-            'Style: %s,%s,%d,%s,&H000000FF,%s,&H80000000,0,0,0,0,100,100,0,0,1,%d,1,%d,120,120,%d,1',
+            'Style: %s,%s,%d,%s,&H000000FF,%s,&H80000000,0,0,0,0,100,100,0,0,1,%d,1,%d,%d,%d,%d,1',
             $name,
             $style['font'],
             $style['size'],
@@ -100,7 +96,9 @@ class AssGenerator
             $this->assColor((string) $style['outline']),
             $outline,
             $position->assAlignment(),
-            $marginV,
+            $this->layout->marginX,
+            $this->layout->marginX,
+            $this->layout->marginV($position),
         );
     }
 
@@ -114,13 +112,15 @@ class AssGenerator
         $gap = max(36, intdiv($arabicSize, 2));
 
         return [
-            'arabic' => sprintf('{\\an2\\pos(%d,%d)\\q2}', $x, $y - $gap),
-            'translation' => sprintf('{\\an8\\pos(%d,%d)\\q2}', $x, $y + $gap),
+            'arabic' => sprintf('{\\an2\\pos(%d,%d)\\q%d}', $x, $y - $gap, $this->layout->wrapStyle),
+            'translation' => sprintf('{\\an8\\pos(%d,%d)\\q%d}', $x, $y + $gap, $this->layout->wrapStyle),
         ];
     }
 
-    private function dialogue(int $layer, string $start, string $end, string $style, string $text, string $overrides = '{\\q2}'): string
+    private function dialogue(int $layer, string $start, string $end, string $style, string $text, ?string $overrides = null): string
     {
+        $overrides ??= $this->layout->wrapOverride();
+
         return "Dialogue: {$layer},{$start},{$end},{$style},,0,0,0,,{$overrides}{$this->escapeAss($text)}";
     }
 

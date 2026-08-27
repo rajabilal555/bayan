@@ -2,6 +2,7 @@
 
 namespace App\Rendering;
 
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
 
@@ -29,14 +30,27 @@ class Ffmpeg
      */
     public function run(array $arguments, int $timeout = 1700): void
     {
-        $result = Process::timeout($timeout)->run([
+        $command = [
             (string) config('bayan.ffmpeg'),
             '-y',
             ...$arguments,
-        ]);
+        ];
+        $line = $this->commandLine($command);
+
+        Log::info('ffmpeg', ['command' => $line]);
+
+        $result = Process::timeout($timeout)->run($command);
 
         if ($result->failed()) {
-            throw new RuntimeException('ffmpeg failed: '.$result->errorOutput().$result->output());
+            throw new RuntimeException('ffmpeg failed: '.$line."\n".$result->errorOutput().$result->output());
         }
+    }
+
+    /**
+     * @param  list<string>  $command
+     */
+    private function commandLine(array $command): string
+    {
+        return implode(' ', array_map(escapeshellarg(...), $command));
     }
 }

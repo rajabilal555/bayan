@@ -7,15 +7,15 @@ use App\Filament\Resources\Backgrounds\Pages\ListBackgrounds;
 use App\Filament\Resources\Reciters\Pages\ListReciters;
 use App\Filament\Resources\Surahs\Pages\ListSurahs;
 use App\Filament\Resources\TranslationSources\Pages\ListTranslationSources;
-use App\Jobs\RunImportCommand;
+use App\Jobs\DownloadReciterSurahAudio;
+use App\Jobs\PersistTranslationDump;
 use App\Models\Ayah;
 use App\Models\Background;
-use App\Models\Reciter;
 use App\Models\Surah;
 use App\Models\User;
 use App\Rendering\Ffmpeg;
-use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -90,57 +90,8 @@ test('non-admins cannot view surahs or ayahs', function () {
         ->assertForbidden();
 });
 
-test('import surahs action queues the artisan command', function () {
-    Queue::fake();
-    $admin = User::factory()->admin()->create();
-
-    Livewire::actingAs($admin)
-        ->test(LibraryImports::class)
-        ->callAction('importSurahs')
-        ->assertNotified('Import queued');
-
-    Queue::assertPushed(RunImportCommand::class, fn (RunImportCommand $job): bool => $job->command === 'qul:import-surahs');
-});
-
-test('import translation action queues with source and surahs', function () {
-    Queue::fake();
-    $admin = User::factory()->admin()->create();
-
-    Livewire::actingAs($admin)
-        ->test(ListTranslationSources::class)
-        ->callAction('importTranslation', [
-            'source' => 'saheeh',
-            'surahs' => '1',
-        ]);
-
-    Queue::assertPushed(RunImportCommand::class, function (RunImportCommand $job): bool {
-        return $job->command === 'qul:import-translation'
-            && ($job->parameters['source'] ?? null) === 'saheeh'
-            && ($job->parameters['--surahs'] ?? null) === '1';
-    });
-});
-
-test('import reciter audio action uses the reciter qul id', function () {
-    Queue::fake();
-    $admin = User::factory()->admin()->create();
-    $reciter = Reciter::factory()->create(['qul_resource_id' => '18']);
-
-    Livewire::actingAs($admin)
-        ->test(ListReciters::class)
-        ->callAction(TestAction::make('importAudio')->table($reciter), [
-            'surahs' => '1',
-            'download_audio' => true,
-        ]);
-
-    Queue::assertPushed(RunImportCommand::class, function (RunImportCommand $job): bool {
-        return $job->command === 'qul:import-reciter'
-            && ($job->parameters['reciter'] ?? null) === '18'
-            && ($job->parameters['--surahs'] ?? null) === '1'
-            && ($job->parameters['--download-audio'] ?? null) === true;
-    });
-});
-
-test('queued import job runs the artisan command', function () {
+test('import surahs action pulls chapters from qul', function () {
+    Http::preventStrayRequests();
     Http::fake([
         'qul.tarteel.ai/api/v1/chapters' => Http::response([
             'chapters' => [
@@ -155,9 +106,60 @@ test('queued import job runs the artisan command', function () {
         ]),
     ]);
 
-    (new RunImportCommand('qul:import-surahs'))->handle();
+    $admin = User::factory()->admin()->create();
+
+    Livewire::actingAs($admin)
+        ->test(LibraryImports::class)
+        ->callAction('importSurahs')
+        ->assertNotified('Surahs imported');
 
     expect(Surah::query()->where('number', 1)->value('name_en'))->toBe('Al-Fatihah');
+});
+
+test('import translation action queues persist from a dump', function () {
+    Storage::fake((string) config('bayan.disks.library'));
+    Queue::fake();
+    $admin = User::factory()->admin()->create();
+
+    $file = UploadedFile::fake()->createWithContent('saheeh.json', json_encode([
+        '1:1' => ['t' => 'In the name of Allah', 'f' => []],
+    ]));
+
+    Livewire::actingAs($admin)
+        ->test(ListTranslationSources::class)
+        ->callAction('importTranslation', [
+            'name' => 'Saheeh International',
+            'file' => $file,
+        ])
+        ->assertNotified('Translation import queued');
+
+    Queue::assertPushed(PersistTranslationDump::class);
+});
+
+test('import reciter action queues one download job per surah', function () {
+    Storage::fake((string) config('bayan.disks.library'));
+    Queue::fake();
+    $admin = User::factory()->admin()->create();
+
+    $file = UploadedFile::fake()->createWithContent('recitation.json', json_encode([
+        '1:1' => [
+            'surah_number' => 1,
+            'ayah_number' => 1,
+            'audio_url' => 'https://audio.qurancdn.com/Sudais/mp3/001001.mp3',
+            'duration' => 3.0,
+            'segments' => [['1', '380', '730']],
+        ],
+    ]));
+
+    Livewire::actingAs($admin)
+        ->test(ListReciters::class)
+        ->callAction('importReciter', [
+            'name' => 'Abdur-Rahman as-Sudais',
+            'file' => $file,
+        ])
+        ->assertNotified('Reciter import queued');
+
+    Queue::assertPushed(DownloadReciterSurahAudio::class, 1);
 });
 
 test('background thumbnail is generated when missing', function () {

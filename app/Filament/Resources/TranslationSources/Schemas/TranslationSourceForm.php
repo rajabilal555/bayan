@@ -13,7 +13,6 @@ class TranslationSourceForm
             ->components([
                 TextInput::make('slug')->required()->unique(ignoreRecord: true),
                 TextInput::make('name')->required(),
-                TextInput::make('qul_resource_id')->required(),
             ]);
     }
 }

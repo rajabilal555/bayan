@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Reciters;
 
-use App\Filament\Resources\Reciters\Pages\CreateReciter;
 use App\Filament\Resources\Reciters\Pages\EditReciter;
 use App\Filament\Resources\Reciters\Pages\ListReciters;
 use App\Filament\Resources\Reciters\Schemas\ReciterForm;
@@ -25,6 +24,11 @@ class ReciterResource extends Resource
 
     protected static ?int $navigationSort = 3;
 
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return ReciterForm::configure($schema);
@@ -46,7 +50,6 @@ class ReciterResource extends Resource
     {
         return [
             'index' => ListReciters::route('/'),
-            'create' => CreateReciter::route('/create'),
             'edit' => EditReciter::route('/{record}/edit'),
         ];
     }

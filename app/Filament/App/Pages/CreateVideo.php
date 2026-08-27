@@ -11,6 +11,7 @@ use App\Models\Reciter;
 use App\Models\Surah;
 use App\Models\TranslationSource;
 use App\Models\User;
+use App\Rendering\AssLayout;
 use App\Support\RenderQuota;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -321,7 +322,7 @@ class CreateVideo extends Page
                 ->inline()
                 ->required(),
             Select::make("{$prefix}.size")
-                ->options([28 => '28', 32 => '32', 36 => '36', 42 => '42', 48 => '48', 56 => '56', 64 => '64', 72 => '72', 88 => '88'])
+                ->options(AssLayout::sizeOptions())
                 ->required(),
         ];
     }

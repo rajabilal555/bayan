@@ -73,7 +73,7 @@ class Renderer
 
             return ['path' => $outputRelative, 'duration_ms' => $durationMs];
         } finally {
-            $this->cleanup($workdir);
+            // $this->cleanup($workdir);
         }
     }
 
